@@ -23,7 +23,7 @@ JWT_SECRET=HnzieJ8Bjpfq4eBXh3hiHsgvrPBEhjQrpjCj1tDqo6I=
 
 GOOGLE_CLIENT_ID=your_actual_client_id_here
 GOOGLE_CLIENT_SECRET=your_actual_client_secret_here
-GOOGLE_REDIRECT_URL=http://localhost:3000/dashboard
+GOOGLE_REDIRECT_URL=http://localhost:3000
 
 PORT=8080
 GIN_MODE=debug

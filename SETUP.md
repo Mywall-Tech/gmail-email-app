@@ -63,7 +63,7 @@
    # Gmail API Configuration
    GOOGLE_CLIENT_ID=your_google_client_id
    GOOGLE_CLIENT_SECRET=your_google_client_secret
-   GOOGLE_REDIRECT_URL=http://localhost:3000/dashboard
+   GOOGLE_REDIRECT_URL=http://localhost:3000
 
    # Server Configuration
    PORT=8080
