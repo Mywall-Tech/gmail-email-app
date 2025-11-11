@@ -1,6 +1,7 @@
 .env
 .env.local
 .env.example
+.env.production
 *.log
 .git
 .gitignore
