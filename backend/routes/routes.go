@@ -19,6 +19,7 @@ func SetupRoutes() *gin.Engine {
 	allowedOrigins := []string{
 		"http://localhost:3000",  // Local development
 		"https://localhost:3000", // Local HTTPS
+		"https://email-mkt.netlify.app",
 	}
 
 	// Add production frontend URL if set
