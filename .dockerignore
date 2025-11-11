@@ -1,0 +1,10 @@
+frontend/node_modules
+frontend/build
+backend/.env
+backend/.env.local
+backend/email-app-server
+*.log
+.git
+.gitignore
+README.md
+.dockerignore
