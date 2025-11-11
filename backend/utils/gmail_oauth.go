@@ -22,6 +22,20 @@ func GetGmailRefreshToken(code, redirectURL string) (*GoogleTokenResponse, error
 	clientID := os.Getenv("GOOGLE_CLIENT_ID")
 	clientSecret := os.Getenv("GOOGLE_CLIENT_SECRET")
 
+	// Validate required parameters
+	if clientID == "" {
+		return nil, fmt.Errorf("GOOGLE_CLIENT_ID environment variable is not set")
+	}
+	if clientSecret == "" {
+		return nil, fmt.Errorf("GOOGLE_CLIENT_SECRET environment variable is not set")
+	}
+	if code == "" {
+		return nil, fmt.Errorf("authorization code is empty")
+	}
+	if redirectURL == "" {
+		return nil, fmt.Errorf("redirect URL is empty")
+	}
+
 	// Prepare form data
 	data := url.Values{}
 	data.Set("code", code)
