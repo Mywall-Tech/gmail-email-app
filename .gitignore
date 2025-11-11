@@ -1,0 +1,24 @@
+# Environment files
+.env
+.env.local
+.env.production.local
+
+# Dependencies
+node_modules/
+backend/email-app-server
+
+# Build outputs
+frontend/build/
+backend/main
+
+# Logs
+*.log
+npm-debug.log*
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db

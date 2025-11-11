@@ -1,0 +1,11 @@
+.env
+.env.local
+.env.example
+*.log
+.git
+.gitignore
+README.md
+Dockerfile
+.dockerignore
+email-app-server
+run-server.sh
