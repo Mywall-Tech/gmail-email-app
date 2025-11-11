@@ -19,8 +19,12 @@ type GoogleTokenResponse struct {
 
 // GetGmailRefreshToken exchanges authorization code for access and refresh tokens
 func GetGmailRefreshToken(code, redirectURL string) (*GoogleTokenResponse, error) {
+	fmt.Println("GetGmailRefreshToken called with code:", code, "and redirectURL:", redirectURL)
 	clientID := os.Getenv("GOOGLE_CLIENT_ID")
 	clientSecret := os.Getenv("GOOGLE_CLIENT_SECRET")
+
+	fmt.Println("clientID:", clientID)
+	fmt.Println("clientSecret:", clientSecret)
 
 	// Validate required parameters
 	if clientID == "" {
