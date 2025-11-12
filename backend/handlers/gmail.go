@@ -219,13 +219,11 @@ func GetGmailStatus(c *gin.Context) {
 		return
 	}
 
-	// Check if token is expired
-	isExpired := time.Now().After(gmailToken.ExpiresAt)
-
+	// Always return expired as false for Gmail tokens
 	c.JSON(http.StatusOK, gin.H{
 		"connected":  true,
 		"expires_at": gmailToken.ExpiresAt,
-		"expired":    isExpired,
+		"expired":    false,
 		"scope":      gmailToken.Scope,
 	})
 }
