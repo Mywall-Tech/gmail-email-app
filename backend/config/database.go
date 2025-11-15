@@ -42,7 +42,7 @@ func ConnectDatabase() {
 	}
 
 	// Auto migrate the schema
-	err = database.AutoMigrate(&models.User{}, &models.GmailToken{})
+	err = database.AutoMigrate(&models.User{}, &models.GmailToken{}, &models.EmailHistory{})
 	if err != nil {
 		log.Fatal("Failed to migrate database:", err)
 	}

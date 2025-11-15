@@ -61,6 +61,8 @@ func SetupRoutes() *gin.Engine {
 			gmail.POST("/send", handlers.SendEmail)
 			gmail.POST("/process-csv", handlers.ProcessCSV)
 			gmail.POST("/send-bulk", handlers.SendBulkEmails)
+			gmail.GET("/history", handlers.GetEmailHistory)
+			gmail.GET("/history/stats", handlers.GetEmailHistoryStats)
 		}
 	}
 

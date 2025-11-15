@@ -19,6 +19,7 @@ import (
 	"email-app-backend/utils"
 
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 	"github.com/joho/godotenv"
 	"golang.org/x/oauth2"
 	"golang.org/x/oauth2/google"
@@ -195,10 +196,34 @@ func SendEmail(c *gin.Context) {
 
 	// Send email
 	_, err = gmailService.Users.Messages.Send("me", message).Do()
+
+	// Track email history
+	emailHistory := models.EmailHistory{
+		UserID:         userID.(uint),
+		EmailType:      "single",
+		RecipientEmail: req.To,
+		RecipientName:  "", // Single emails don't have names
+		Subject:        req.Subject,
+		Body:           req.Body,
+		Status:         "sent",
+		ErrorMessage:   "",
+		BatchID:        "",
+		SentAt:         time.Now(),
+	}
+
 	if err != nil {
+		emailHistory.Status = "failed"
+		emailHistory.ErrorMessage = err.Error()
+
+		// Save failed email to history
+		config.DB.Create(&emailHistory)
+
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to send email"})
 		return
 	}
+
+	// Save successful email to history
+	config.DB.Create(&emailHistory)
 
 	c.JSON(http.StatusOK, gin.H{
 		"message": "Email sent successfully",
@@ -563,6 +588,9 @@ func SendBulkEmails(c *gin.Context) {
 	// Get user email for "from" field (not currently used but available for future features)
 	_, _ = c.Get("user_email")
 
+	// Generate batch ID for grouping bulk emails
+	batchID := uuid.New().String()
+
 	// Process emails concurrently with rate limiting
 	const maxConcurrent = 5
 	semaphore := make(chan struct{}, maxConcurrent)
@@ -590,18 +618,18 @@ func SendBulkEmails(c *gin.Context) {
 			success := true
 			errorMsg := ""
 
+			// Personalize email body if name is provided
+			personalizedBody := req.Body
+			if record.Name != "" {
+				personalizedBody = strings.ReplaceAll(personalizedBody, "{{name}}", record.Name)
+				personalizedBody = strings.ReplaceAll(personalizedBody, "{{Name}}", record.Name)
+			}
+
 			// Validate email
 			if !isValidEmail(record.Email) {
 				success = false
 				errorMsg = "Invalid email format"
 			} else {
-				// Personalize email body if name is provided
-				personalizedBody := req.Body
-				if record.Name != "" {
-					personalizedBody = strings.ReplaceAll(personalizedBody, "{{name}}", record.Name)
-					personalizedBody = strings.ReplaceAll(personalizedBody, "{{Name}}", record.Name)
-				}
-
 				// Create email message
 				emailBody := fmt.Sprintf("To: %s\r\nSubject: %s\r\n\r\n%s",
 					record.Email, req.Subject, personalizedBody)
@@ -616,6 +644,30 @@ func SendBulkEmails(c *gin.Context) {
 					errorMsg = fmt.Sprintf("Failed to send: %v", err)
 				}
 			}
+
+			// Track email history
+			emailHistory := models.EmailHistory{
+				UserID:         userID.(uint),
+				EmailType:      "bulk",
+				RecipientEmail: record.Email,
+				RecipientName:  record.Name,
+				Subject:        req.Subject,
+				Body:           personalizedBody,
+				Status:         "sent",
+				ErrorMessage:   "",
+				BatchID:        batchID,
+				SentAt:         time.Now(),
+			}
+
+			if !success {
+				emailHistory.Status = "failed"
+				emailHistory.ErrorMessage = errorMsg
+			}
+
+			// Save to database (non-blocking)
+			go func(history models.EmailHistory) {
+				config.DB.Create(&history)
+			}(emailHistory)
 
 			// Update results
 			mu.Lock()
@@ -648,4 +700,100 @@ func SendBulkEmails(c *gin.Context) {
 		Results:        results,
 		ProcessingTime: processingTime.String(),
 	})
+}
+
+// EmailHistoryResponse represents paginated email history
+type EmailHistoryResponse struct {
+	History    []models.EmailHistory `json:"history"`
+	TotalCount int64                 `json:"total_count"`
+	Page       int                   `json:"page"`
+	PageSize   int                   `json:"page_size"`
+	TotalPages int                   `json:"total_pages"`
+}
+
+// EmailHistoryStats represents email statistics
+type EmailHistoryStats struct {
+	TotalSent       int64 `json:"total_sent"`
+	TotalFailed     int64 `json:"total_failed"`
+	SingleEmails    int64 `json:"single_emails"`
+	BulkEmails      int64 `json:"bulk_emails"`
+	Last7DaysSent   int64 `json:"last_7_days_sent"`
+	Last7DaysFailed int64 `json:"last_7_days_failed"`
+}
+
+// GetEmailHistory retrieves paginated email history for a user
+func GetEmailHistory(c *gin.Context) {
+	userID, exists := c.Get("user_id")
+	if !exists {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "User not found in context"})
+		return
+	}
+
+	// Parse query parameters
+	page := 1
+	pageSize := 20
+	emailType := c.Query("type") // "single", "bulk", or empty for all
+
+	if p := c.Query("page"); p != "" {
+		if parsed, err := fmt.Sscanf(p, "%d", &page); err != nil || parsed != 1 || page < 1 {
+			page = 1
+		}
+	}
+
+	if ps := c.Query("page_size"); ps != "" {
+		if parsed, err := fmt.Sscanf(ps, "%d", &pageSize); err != nil || parsed != 1 || pageSize < 1 || pageSize > 100 {
+			pageSize = 20
+		}
+	}
+
+	// Build query
+	query := config.DB.Where("user_id = ?", userID)
+	if emailType != "" {
+		query = query.Where("email_type = ?", emailType)
+	}
+
+	// Get total count
+	var totalCount int64
+	query.Model(&models.EmailHistory{}).Count(&totalCount)
+
+	// Get paginated results
+	var history []models.EmailHistory
+	offset := (page - 1) * pageSize
+	query.Order("sent_at DESC").Limit(pageSize).Offset(offset).Find(&history)
+
+	totalPages := int((totalCount + int64(pageSize) - 1) / int64(pageSize))
+
+	c.JSON(http.StatusOK, EmailHistoryResponse{
+		History:    history,
+		TotalCount: totalCount,
+		Page:       page,
+		PageSize:   pageSize,
+		TotalPages: totalPages,
+	})
+}
+
+// GetEmailHistoryStats retrieves email statistics for a user
+func GetEmailHistoryStats(c *gin.Context) {
+	userID, exists := c.Get("user_id")
+	if !exists {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "User not found in context"})
+		return
+	}
+
+	var stats EmailHistoryStats
+
+	// Total sent and failed
+	config.DB.Model(&models.EmailHistory{}).Where("user_id = ? AND status = ?", userID, "sent").Count(&stats.TotalSent)
+	config.DB.Model(&models.EmailHistory{}).Where("user_id = ? AND status = ?", userID, "failed").Count(&stats.TotalFailed)
+
+	// Single vs bulk emails
+	config.DB.Model(&models.EmailHistory{}).Where("user_id = ? AND email_type = ?", userID, "single").Count(&stats.SingleEmails)
+	config.DB.Model(&models.EmailHistory{}).Where("user_id = ? AND email_type = ?", userID, "bulk").Count(&stats.BulkEmails)
+
+	// Last 7 days
+	sevenDaysAgo := time.Now().AddDate(0, 0, -7)
+	config.DB.Model(&models.EmailHistory{}).Where("user_id = ? AND status = ? AND sent_at >= ?", userID, "sent", sevenDaysAgo).Count(&stats.Last7DaysSent)
+	config.DB.Model(&models.EmailHistory{}).Where("user_id = ? AND status = ? AND sent_at >= ?", userID, "failed", sevenDaysAgo).Count(&stats.Last7DaysFailed)
+
+	c.JSON(http.StatusOK, stats)
 }
