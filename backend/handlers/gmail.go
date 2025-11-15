@@ -3,10 +3,15 @@ package handlers
 import (
 	"context"
 	"encoding/base64"
+	"encoding/csv"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
+	"regexp"
+	"strings"
+	"sync"
 	"time"
 
 	"email-app-backend/config"
@@ -338,5 +343,331 @@ func HandleGoogleCallback(c *gin.Context) {
 		"user":            user,
 		"message":         "Gmail authentication and connection successful",
 		"gmail_connected": true,
+	})
+}
+
+// BulkEmailRecord represents a single email record
+type BulkEmailRecord struct {
+	Email   string `json:"email"`
+	Subject string `json:"subject"`
+	Body    string `json:"body"`
+	Name    string `json:"name"`
+}
+
+// ProcessCSVResponse represents the response after processing CSV
+type ProcessCSVResponse struct {
+	TotalRecords int               `json:"total_records"`
+	ValidEmails  []BulkEmailRecord `json:"valid_emails"`
+	Errors       []string          `json:"errors,omitempty"`
+}
+
+// BulkEmailRequest represents the request for bulk email sending
+type BulkEmailRequest struct {
+	Emails []BulkEmailRecord `json:"emails"`
+}
+
+// BulkEmailResponse represents the response for bulk email sending
+type BulkEmailResponse struct {
+	TotalEmails      int               `json:"total_emails"`
+	SuccessCount     int               `json:"success_count"`
+	FailureCount     int               `json:"failure_count"`
+	Results          []BulkEmailResult `json:"results"`
+	ProcessingTime   string            `json:"processing_time"`
+}
+
+// BulkEmailResult represents the result of sending a single email
+type BulkEmailResult struct {
+	Email   string `json:"email"`
+	Success bool   `json:"success"`
+	Error   string `json:"error,omitempty"`
+}
+
+// isValidEmail validates email format using regex
+func isValidEmail(email string) bool {
+	emailRegex := regexp.MustCompile(`^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$`)
+	return emailRegex.MatchString(email)
+}
+
+// ProcessCSV handles CSV file upload and processing
+func ProcessCSV(c *gin.Context) {
+	userID, exists := c.Get("user_id")
+	if !exists {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "User not found in context"})
+		return
+	}
+
+	// Parse multipart form
+	file, header, err := c.Request.FormFile("csv_file")
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "No CSV file provided"})
+		return
+	}
+	defer file.Close()
+
+	// Validate file type
+	if !strings.HasSuffix(strings.ToLower(header.Filename), ".csv") {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "File must be a CSV file"})
+		return
+	}
+
+	// Limit file size to 5MB
+	const maxFileSize = 5 * 1024 * 1024
+	if header.Size > maxFileSize {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "File size must be less than 5MB"})
+		return
+	}
+
+	// Read and parse CSV
+	reader := csv.NewReader(file)
+	reader.FieldsPerRecord = -1 // Allow variable number of fields
+
+	var validEmails []BulkEmailRecord
+	var errors []string
+	totalRecords := 0
+
+	// Read header row
+	headers, err := reader.Read()
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Failed to read CSV headers"})
+		return
+	}
+
+	// Find column indices
+	emailCol, subjectCol, bodyCol, nameCol := -1, -1, -1, -1
+	for i, header := range headers {
+		switch strings.ToLower(strings.TrimSpace(header)) {
+		case "email", "email_address", "to":
+			emailCol = i
+		case "subject":
+			subjectCol = i
+		case "body", "message", "content":
+			bodyCol = i
+		case "name", "full_name", "recipient_name":
+			nameCol = i
+		}
+	}
+
+	if emailCol == -1 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "CSV must contain an 'email' column"})
+		return
+	}
+
+	// Process data rows
+	for {
+		record, err := reader.Read()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			errors = append(errors, fmt.Sprintf("Error reading row %d: %v", totalRecords+2, err))
+			continue
+		}
+
+		totalRecords++
+
+		// Skip empty rows
+		if len(record) == 0 || (len(record) == 1 && strings.TrimSpace(record[0]) == "") {
+			continue
+		}
+
+		// Extract email
+		if emailCol >= len(record) || strings.TrimSpace(record[emailCol]) == "" {
+			errors = append(errors, fmt.Sprintf("Row %d: Missing email address", totalRecords+1))
+			continue
+		}
+
+		email := strings.TrimSpace(record[emailCol])
+		if !isValidEmail(email) {
+			errors = append(errors, fmt.Sprintf("Row %d: Invalid email format: %s", totalRecords+1, email))
+			continue
+		}
+
+		// Extract other fields with defaults
+		subject := ""
+		if subjectCol != -1 && subjectCol < len(record) {
+			subject = strings.TrimSpace(record[subjectCol])
+		}
+
+		body := ""
+		if bodyCol != -1 && bodyCol < len(record) {
+			body = strings.TrimSpace(record[bodyCol])
+		}
+
+		name := ""
+		if nameCol != -1 && nameCol < len(record) {
+			name = strings.TrimSpace(record[nameCol])
+		}
+
+		validEmails = append(validEmails, BulkEmailRecord{
+			Email:   email,
+			Subject: subject,
+			Body:    body,
+			Name:    name,
+		})
+	}
+
+	// Limit number of emails to prevent abuse
+	const maxEmails = 100
+	if len(validEmails) > maxEmails {
+		validEmails = validEmails[:maxEmails]
+		errors = append(errors, fmt.Sprintf("Limited to first %d emails", maxEmails))
+	}
+
+	fmt.Printf("User %v processed CSV: %d total records, %d valid emails, %d errors\n", 
+		userID, totalRecords, len(validEmails), len(errors))
+
+	c.JSON(http.StatusOK, ProcessCSVResponse{
+		TotalRecords: totalRecords,
+		ValidEmails:  validEmails,
+		Errors:       errors,
+	})
+}
+
+// SendBulkEmails handles sending multiple emails
+func SendBulkEmails(c *gin.Context) {
+	startTime := time.Now()
+
+	userID, exists := c.Get("user_id")
+	if !exists {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "User not found in context"})
+		return
+	}
+
+	var req BulkEmailRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	if len(req.Emails) == 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "No emails provided"})
+		return
+	}
+
+	// Limit number of emails
+	const maxBulkEmails = 100
+	if len(req.Emails) > maxBulkEmails {
+		c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("Maximum %d emails allowed per batch", maxBulkEmails)})
+		return
+	}
+
+	// Get user's Gmail token
+	var gmailToken models.GmailToken
+	if err := config.DB.Where("user_id = ?", userID).First(&gmailToken).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Gmail account not connected"})
+		return
+	}
+
+	// Create OAuth2 token
+	token := &oauth2.Token{
+		AccessToken:  gmailToken.AccessToken,
+		RefreshToken: gmailToken.RefreshToken,
+		TokenType:    gmailToken.TokenType,
+		Expiry:       gmailToken.ExpiresAt,
+	}
+
+	// Create Gmail service
+	ctx := context.Background()
+	client := googleOAuthConfig.Client(ctx, token)
+
+	gmailService, err := gmail.NewService(ctx, option.WithHTTPClient(client))
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create Gmail service"})
+		return
+	}
+
+	// Get user email for "from" field (not currently used but available for future features)
+	_, _ = c.Get("user_email")
+
+	// Process emails concurrently with rate limiting
+	const maxConcurrent = 5
+	semaphore := make(chan struct{}, maxConcurrent)
+	var wg sync.WaitGroup
+	var mu sync.Mutex
+
+	results := make([]BulkEmailResult, len(req.Emails))
+	successCount := 0
+	failureCount := 0
+
+	for i, emailRecord := range req.Emails {
+		wg.Add(1)
+		go func(index int, record BulkEmailRecord) {
+			defer wg.Done()
+
+			// Rate limiting
+			semaphore <- struct{}{}
+			defer func() { <-semaphore }()
+
+			// Add delay between emails to respect Gmail limits
+			if index > 0 {
+				time.Sleep(100 * time.Millisecond)
+			}
+
+			success := true
+			errorMsg := ""
+
+			// Validate email
+			if !isValidEmail(record.Email) {
+				success = false
+				errorMsg = "Invalid email format"
+			} else if record.Subject == "" {
+				success = false
+				errorMsg = "Subject is required"
+			} else if record.Body == "" {
+				success = false
+				errorMsg = "Body is required"
+			} else {
+				// Personalize email if name is provided
+				personalizedBody := record.Body
+				if record.Name != "" {
+					personalizedBody = strings.ReplaceAll(personalizedBody, "{{name}}", record.Name)
+					personalizedBody = strings.ReplaceAll(personalizedBody, "{{Name}}", record.Name)
+				}
+
+				// Create email message
+				emailBody := fmt.Sprintf("To: %s\r\nSubject: %s\r\n\r\n%s", 
+					record.Email, record.Subject, personalizedBody)
+				message := &gmail.Message{
+					Raw: base64.URLEncoding.EncodeToString([]byte(emailBody)),
+				}
+
+				// Send email
+				_, err := gmailService.Users.Messages.Send("me", message).Do()
+				if err != nil {
+					success = false
+					errorMsg = fmt.Sprintf("Failed to send: %v", err)
+				}
+			}
+
+			// Update results
+			mu.Lock()
+			results[index] = BulkEmailResult{
+				Email:   record.Email,
+				Success: success,
+				Error:   errorMsg,
+			}
+			if success {
+				successCount++
+			} else {
+				failureCount++
+			}
+			mu.Unlock()
+
+		}(i, emailRecord)
+	}
+
+	wg.Wait()
+
+	processingTime := time.Since(startTime)
+
+	fmt.Printf("User %v sent bulk emails: %d total, %d success, %d failed, took %v\n", 
+		userID, len(req.Emails), successCount, failureCount, processingTime)
+
+	c.JSON(http.StatusOK, BulkEmailResponse{
+		TotalEmails:    len(req.Emails),
+		SuccessCount:   successCount,
+		FailureCount:   failureCount,
+		Results:        results,
+		ProcessingTime: processingTime.String(),
 	})
 }
