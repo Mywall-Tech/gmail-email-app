@@ -1,0 +1,6 @@
+email,subject,body,name
+john.doe@example.com,Welcome to Our Service,Hi {{name}}! Welcome to our amazing service. We're excited to have you on board!,John Doe
+jane.smith@example.com,Special Offer Just for You,Hello {{name}}! We have a special offer that we think you'll love. Check it out!,Jane Smith
+bob.johnson@example.com,Newsletter Update,Hi {{name}}! Here's our latest newsletter with exciting updates and news.,Bob Johnson
+alice.brown@example.com,Thank You for Your Purchase,Dear {{name}}! Thank you for your recent purchase. We hope you love your new items!,Alice Brown
+charlie.wilson@example.com,Invitation to Our Event,Hello {{name}}! You're invited to our exclusive event next week. Don't miss out!,Charlie Wilson

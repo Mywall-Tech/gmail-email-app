@@ -368,11 +368,11 @@ type BulkEmailRequest struct {
 
 // BulkEmailResponse represents the response for bulk email sending
 type BulkEmailResponse struct {
-	TotalEmails      int               `json:"total_emails"`
-	SuccessCount     int               `json:"success_count"`
-	FailureCount     int               `json:"failure_count"`
-	Results          []BulkEmailResult `json:"results"`
-	ProcessingTime   string            `json:"processing_time"`
+	TotalEmails    int               `json:"total_emails"`
+	SuccessCount   int               `json:"success_count"`
+	FailureCount   int               `json:"failure_count"`
+	Results        []BulkEmailResult `json:"results"`
+	ProcessingTime string            `json:"processing_time"`
 }
 
 // BulkEmailResult represents the result of sending a single email
@@ -513,7 +513,7 @@ func ProcessCSV(c *gin.Context) {
 		errors = append(errors, fmt.Sprintf("Limited to first %d emails", maxEmails))
 	}
 
-	fmt.Printf("User %v processed CSV: %d total records, %d valid emails, %d errors\n", 
+	fmt.Printf("User %v processed CSV: %d total records, %d valid emails, %d errors\n",
 		userID, totalRecords, len(validEmails), len(errors))
 
 	c.JSON(http.StatusOK, ProcessCSVResponse{
@@ -625,7 +625,7 @@ func SendBulkEmails(c *gin.Context) {
 				}
 
 				// Create email message
-				emailBody := fmt.Sprintf("To: %s\r\nSubject: %s\r\n\r\n%s", 
+				emailBody := fmt.Sprintf("To: %s\r\nSubject: %s\r\n\r\n%s",
 					record.Email, record.Subject, personalizedBody)
 				message := &gmail.Message{
 					Raw: base64.URLEncoding.EncodeToString([]byte(emailBody)),
@@ -660,7 +660,7 @@ func SendBulkEmails(c *gin.Context) {
 
 	processingTime := time.Since(startTime)
 
-	fmt.Printf("User %v sent bulk emails: %d total, %d success, %d failed, took %v\n", 
+	fmt.Printf("User %v sent bulk emails: %d total, %d success, %d failed, took %v\n",
 		userID, len(req.Emails), successCount, failureCount, processingTime)
 
 	c.JSON(http.StatusOK, BulkEmailResponse{
