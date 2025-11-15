@@ -348,10 +348,8 @@ func HandleGoogleCallback(c *gin.Context) {
 
 // BulkEmailRecord represents a single email record
 type BulkEmailRecord struct {
-	Email   string `json:"email"`
-	Subject string `json:"subject"`
-	Body    string `json:"body"`
-	Name    string `json:"name"`
+	Email string `json:"email"`
+	Name  string `json:"name"`
 }
 
 // ProcessCSVResponse represents the response after processing CSV
@@ -363,7 +361,9 @@ type ProcessCSVResponse struct {
 
 // BulkEmailRequest represents the request for bulk email sending
 type BulkEmailRequest struct {
-	Emails []BulkEmailRecord `json:"emails"`
+	Subject string            `json:"subject" binding:"required"`
+	Body    string            `json:"body" binding:"required"`
+	Emails  []BulkEmailRecord `json:"emails"`
 }
 
 // BulkEmailResponse represents the response for bulk email sending
@@ -433,15 +433,11 @@ func ProcessCSV(c *gin.Context) {
 	}
 
 	// Find column indices
-	emailCol, subjectCol, bodyCol, nameCol := -1, -1, -1, -1
+	emailCol, nameCol := -1, -1
 	for i, header := range headers {
 		switch strings.ToLower(strings.TrimSpace(header)) {
 		case "email", "email_address", "to":
 			emailCol = i
-		case "subject":
-			subjectCol = i
-		case "body", "message", "content":
-			bodyCol = i
 		case "name", "full_name", "recipient_name":
 			nameCol = i
 		}
@@ -482,27 +478,15 @@ func ProcessCSV(c *gin.Context) {
 			continue
 		}
 
-		// Extract other fields with defaults
-		subject := ""
-		if subjectCol != -1 && subjectCol < len(record) {
-			subject = strings.TrimSpace(record[subjectCol])
-		}
-
-		body := ""
-		if bodyCol != -1 && bodyCol < len(record) {
-			body = strings.TrimSpace(record[bodyCol])
-		}
-
+		// Extract name field
 		name := ""
 		if nameCol != -1 && nameCol < len(record) {
 			name = strings.TrimSpace(record[nameCol])
 		}
 
 		validEmails = append(validEmails, BulkEmailRecord{
-			Email:   email,
-			Subject: subject,
-			Body:    body,
-			Name:    name,
+			Email: email,
+			Name:  name,
 		})
 	}
 
@@ -610,15 +594,9 @@ func SendBulkEmails(c *gin.Context) {
 			if !isValidEmail(record.Email) {
 				success = false
 				errorMsg = "Invalid email format"
-			} else if record.Subject == "" {
-				success = false
-				errorMsg = "Subject is required"
-			} else if record.Body == "" {
-				success = false
-				errorMsg = "Body is required"
 			} else {
-				// Personalize email if name is provided
-				personalizedBody := record.Body
+				// Personalize email body if name is provided
+				personalizedBody := req.Body
 				if record.Name != "" {
 					personalizedBody = strings.ReplaceAll(personalizedBody, "{{name}}", record.Name)
 					personalizedBody = strings.ReplaceAll(personalizedBody, "{{Name}}", record.Name)
@@ -626,7 +604,7 @@ func SendBulkEmails(c *gin.Context) {
 
 				// Create email message
 				emailBody := fmt.Sprintf("To: %s\r\nSubject: %s\r\n\r\n%s",
-					record.Email, record.Subject, personalizedBody)
+					record.Email, req.Subject, personalizedBody)
 				message := &gmail.Message{
 					Raw: base64.URLEncoding.EncodeToString([]byte(emailBody)),
 				}
