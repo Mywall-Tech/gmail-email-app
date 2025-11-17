@@ -618,11 +618,14 @@ func SendBulkEmails(c *gin.Context) {
 			success := true
 			errorMsg := ""
 
-			// Personalize email body if name is provided
+			// Personalize email body and subject if name is provided
 			personalizedBody := req.Body
+			personalizedSubject := req.Subject
 			if record.Name != "" {
 				personalizedBody = strings.ReplaceAll(personalizedBody, "{{name}}", record.Name)
 				personalizedBody = strings.ReplaceAll(personalizedBody, "{{Name}}", record.Name)
+				personalizedSubject = strings.ReplaceAll(personalizedSubject, "{{name}}", record.Name)
+				personalizedSubject = strings.ReplaceAll(personalizedSubject, "{{Name}}", record.Name)
 			}
 
 			// Validate email
@@ -632,7 +635,7 @@ func SendBulkEmails(c *gin.Context) {
 			} else {
 				// Create email message
 				emailBody := fmt.Sprintf("To: %s\r\nSubject: %s\r\n\r\n%s",
-					record.Email, req.Subject, personalizedBody)
+					record.Email, personalizedSubject, personalizedBody)
 				message := &gmail.Message{
 					Raw: base64.URLEncoding.EncodeToString([]byte(emailBody)),
 				}
