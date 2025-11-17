@@ -32,7 +32,6 @@ var (
 )
 
 func init() {
-	// Try to load .env file if environment variables are not set
 	if os.Getenv("GOOGLE_CLIENT_ID") == "" {
 		fmt.Println("Attempting to load .env file...")
 		if err := godotenv.Load(); err != nil {
@@ -64,14 +63,6 @@ func init() {
 		Endpoint: google.Endpoint,
 	}
 
-	fmt.Printf("Google OAuth Config initialized:\n")
-	fmt.Printf("  Client ID: %s\n", clientID)
-	secretPreview := clientSecret
-	if len(clientSecret) > 10 {
-		secretPreview = clientSecret[:10] + "..."
-	}
-	fmt.Printf("  Client Secret: %s\n", secretPreview)
-	fmt.Printf("  Redirect URL: %s\n", redirectURL)
 }
 
 func GetGmailAuthURL(c *gin.Context) {
@@ -255,6 +246,33 @@ func GetGmailStatus(c *gin.Context) {
 		"expires_at": gmailToken.ExpiresAt,
 		"expired":    false,
 		"scope":      gmailToken.Scope,
+	})
+}
+
+func DisconnectGmail(c *gin.Context) {
+	userID, exists := c.Get("user_id")
+	if !exists {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "User not found in context"})
+		return
+	}
+
+	// Delete all Gmail tokens for this user
+	result := config.DB.Where("user_id = ?", userID).Delete(&models.GmailToken{})
+	if result.Error != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to disconnect Gmail account"})
+		return
+	}
+
+	if result.RowsAffected == 0 {
+		c.JSON(http.StatusOK, gin.H{
+			"message": "No Gmail account was connected",
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"message":   "Gmail account disconnected successfully",
+		"connected": false,
 	})
 }
 

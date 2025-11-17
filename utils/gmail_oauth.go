@@ -48,15 +48,6 @@ func GetGmailRefreshToken(code, redirectURL string) (*GoogleTokenResponse, error
 	data.Set("redirect_uri", redirectURL)
 	data.Set("grant_type", "authorization_code")
 
-	fmt.Printf("OAuth request parameters:\n")
-	fmt.Printf("  client_id: %s\n", clientID)
-	fmt.Printf("  client_secret: %s\n", clientSecret)
-	fmt.Printf("  redirect_uri: %s\n", redirectURL)
-	fmt.Printf("  code: %s\n", code)
-	fmt.Printf("  grant_type: authorization_code\n")
-	fmt.Printf("Full encoded data: %s\n", data.Encode())
-
-	// Make the request
 	resp, err := http.Post(
 		"https://oauth2.googleapis.com/token",
 		"application/x-www-form-urlencoded",
@@ -65,7 +56,6 @@ func GetGmailRefreshToken(code, redirectURL string) (*GoogleTokenResponse, error
 	if err != nil {
 		return nil, fmt.Errorf("failed to make token request: %v", err)
 	}
-	fmt.Println("resp", resp)
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
